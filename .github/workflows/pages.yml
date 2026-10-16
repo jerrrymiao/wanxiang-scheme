@@ -1,0 +1,55 @@
+name: pages
+
+on:
+  push:
+    branches: [main]
+
+permissions:
+  contents: read
+  pages: write
+  id-token: write
+
+concurrency:
+  group: pages
+  cancel-in-progress: true
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+      - name: Restore binary assets
+        run: |
+          find . -name '*.b64' -print0 | while IFS= read -r -d '' f; do
+            base64 -d "$f" > "${f%.b64}"
+            rm "$f"
+          done
+      - run: npm ci
+      - name: Build static site
+        run: node scripts/with-app-env.mjs vite build
+        env:
+          GITHUB_PAGES: "1"
+          VITE_AUTH_ENABLED: "false"
+      - name: Collect site
+        run: |
+          mkdir -p site
+          if [ -d dist/client ]; then cp -a dist/client/. site/; fi
+          if [ -d .output/public ]; then cp -a .output/public/. site/; fi
+          test -f site/index.html
+      - uses: actions/upload-pages-artifact@v3
+        with:
+          path: site
+
+  deploy:
+    needs: build
+    runs-on: ubuntu-latest
+    environment:
+      name: github-pages
+      url: ${{ steps.deployment.outputs.page_url }}
+    steps:
+      - id: deployment
+        uses: actions/deploy-pages@v4
